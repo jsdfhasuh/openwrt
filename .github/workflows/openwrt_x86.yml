@@ -26,7 +26,8 @@ jobs:
     name: Build OpenWrt firmware
 
     runs-on: ubuntu-latest
-    environment: x86  # 指定环境
+    environment: 
+      name: x86
     if: github.event.repository.owner.id == github.event.sender.id
 
     steps:
