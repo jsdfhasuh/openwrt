@@ -29,13 +29,19 @@ jobs:
     environment: 
       name: x86
     if: github.event.repository.owner.id == github.event.sender.id
-
+    env:
+      REMOTE_CONFIG_URL: ${{ secrets.REMOTE_CONFIG_URL }}
     steps:
 
       - name: Checkout
         uses: actions/checkout@v3
         with:
           ref: main
+      
+      - name: Echo Environment
+        run: |
+          echo "REMOTE_CONFIG_URL: $REMOTE_CONFIG_URL"
+
 
       - name: Space cleanup
         env:
@@ -43,7 +49,6 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d /usr/local/lib/android
           echo "install build need packages"
-          sudo -E apt-get -y purge azure-cli ghc* zulu* hhvm llvm* firefox google* dotnet* powershell openjdk* adoptopenjdk* mysql* php* mongodb* dotnet* moby* snapd* || true
           sudo -E apt-get update
           sudo -E apt-get -y install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 unzip zlib1g-dev lib32gcc1 libc6-dev-i386 subversion flex uglifyjs gcc-multilib g++-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler antlr3 gperf swig libtinfo5 ack bison ccache clang cmake cpio curl genisoimage haveged help2man intltool libfuse-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncursesw5-dev libpython3-dev libreadline-dev llvm lrzsz ninja-build patch pkgconf python3-pyelftools python3-setuptools rsync scons squashfs-tools vim wget xxd
           sudo -E apt-get -y autoremove --purge
