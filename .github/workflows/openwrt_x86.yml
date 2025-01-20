@@ -104,17 +104,16 @@ jobs:
           rm -rf feeds/packages/net/v2ray-geodata
           git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
           git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
-          if [ -d package/mosdns ]; then
-            echo "src-git mosdns success"
+          ls "package/mosdns"
+          echo "src-git mosdns success"
       
       - name: Install turboacc
         run: |
           echo "src-git turboacc"
           cd $BUILD_ROOT
           curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && bash add_turboacc.sh
-          if [ -d package/turboacc ]; then
-            echo "src-git turboacc success"
-      
+          ls "package/turboacc"
+
       - name: my_private_data
         run: |
             git clone git@github.com:jsdfhasuh/openwrt_config.git $BUILD_ROOT/tmp
