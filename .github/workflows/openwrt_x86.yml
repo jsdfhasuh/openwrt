@@ -96,6 +96,20 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Install mosdns
+        run: |
+          cd $BUILD_ROOT
+          echo "src-git mosdns"
+          rm -rf feeds/packages/net/v2ray-geodata
+          git clone https://github.com/sbwml/luci-app-mosdns -b v5 package/mosdns
+          git clone https://github.com/sbwml/v2ray-geodata package/v2ray-geodata
+      
+      - name: Install turboacc
+        run: |
+          echo "src-git turboacc"
+          cd $BUILD_ROOT
+          curl -sSL https://raw.githubusercontent.com/chenmozhijin/turboacc/luci/add_turboacc.sh -o add_turboacc.sh && bash add_turboacc.sh
       
       - name: my_private_data
         run: |
@@ -108,7 +122,7 @@ jobs:
             cat $BUILD_ROOT/.config
             mv feeds.conf $BUILD_ROOT/feeds.conf
             cat $BUILD_ROOT/feeds.conf
-            
+
       - name: Update feeds
         run: |
           $BUILD_ROOT/scripts/feeds update -a && $BUILD_ROOT/scripts/feeds install -a
@@ -116,25 +130,7 @@ jobs:
       - name: Generate configuration file
         run: |
           cd $BUILD_ROOT
-          rm -f ./.config*
-          touch ./.config
-
-          #
-          # 在 cat >> .config <<EOF 到 EOF 之间粘贴你的编译配置, 需注意缩进关系
-          # 例如:
-
-          cat >> .config <<EOF
-          CONFIG_TARGET_IMAGES_GZIP=y
-          CONFIG_KERNEL_BUILD_USER="OpenWrt-CI"
-          CONFIG_KERNEL_BUILD_DOMAIN="Azure"
-          EOF
-
-          #
-          # ===============================================================
-          # 
-
-          sed -i 's/^[ \t]*//g' ./.config
-          make defconfig
+          cat .config
 
       - name: Make download
         run: |
