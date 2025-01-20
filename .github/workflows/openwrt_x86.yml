@@ -44,6 +44,7 @@ jobs:
       BUILD_ROOT: ${{ github.workspace }}
       CUSTOM_FEEDS_URL: ${{ secrets.CUSTOM_FEEDS_URL }}
       CUSTOM_CONFIG_URL: ${{ secrets.CUSTOM_CONFIG_URL}}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
       TZ: Asia/Shanghai
       DEVICE_NAME: unknown
       FILE_DATE: unknown
@@ -59,7 +60,6 @@ jobs:
           echo "DEVICE_NAME=$DEVICE_NAME"
           echo "FILE_DATE=$FILE_DATE"
           echo "FIRMWARE=$FIRMWARE"
-
         
       - name: Initialization environment
         env:
@@ -85,22 +85,30 @@ jobs:
         with:
           ref: main
 
+
       - name: Start SSH via tmate
         uses: rdp-studio/ssh2actions@main
         if: github.event.inputs.ssh == 'true'
 
+      - name: configure ssh
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+      
+      - name: my_private_data
+        run: |
+            git clone git@github.com:jsdfhasuh/openwrt_config.git $BUILD_ROOT/tmp
+
       - name: Install custom feeds and config
         run: |
-            cd $BUILD_ROOT
-            if [ -n "$CUSTOM_FEEDS_URL" ]; then
-              curl -o feeds.conf $CUSTOM_FEEDS_URL
-            fi
-            cat feeds.conf
-            if [ -n "$CUSTOM_CONFIG_URL" ]; then
-              curl -o .config $CUSTOM_CONFIG_URL
-            fi
-            cat .config
-
+            cd $BUILD_ROOT/tmp
+            mv x86.config $BUILD_ROOT/.config
+            cat $BUILD_ROOT/.config
+            mv feeds.conf $BUILD_ROOT/feeds.conf
+            cat $BUILD_ROOT/feeds.conf
+            
       - name: Update feeds
         run: |
           $BUILD_ROOT/scripts/feeds update -a && $BUILD_ROOT/scripts/feeds install -a
