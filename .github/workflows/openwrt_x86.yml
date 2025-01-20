@@ -39,9 +39,16 @@ jobs:
       name: x86
     if: github.event.repository.owner.id == github.event.sender.id
     env:
-      REMOTE_CONFIG_URL: ${{ secrets.REMOTE_CONFIG_URL }}
       DEPENDENCIES: "build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-setuptools rsync swig unzip zlib1g-dev file wget"
+      REPO_BRANCH: main
+      BUILD_ROOT: ${{ github.workspace }}/openwrt
+      CUSTOM_FEEDS_SH: ${{ github.workspace }}/custom-feeds.sh
+      CUSTOM_PACKAGES_SH: ${{ github.workspace }}/custom-packages.sh
+      CUSTOM_CONFIG_SH: ${{ github.workspace }}/custom-config.sh
       TZ: Asia/Shanghai
+      DEVICE_NAME: unknown
+      FILE_DATE: unknown
+      FIRMWARE: unknown
     steps:
       - name: Initialization environment
         env:
@@ -66,6 +73,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: main
+          path: $BUILD_ROOT  # 指定保存路径
 
       - name: Start SSH via tmate
         uses: rdp-studio/ssh2actions@main
@@ -73,11 +81,11 @@ jobs:
 
       - name: Update feeds
         run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          $BUILD_ROOT/scripts/feeds update -a && $BUILD_ROOT/scripts/feeds install -a
 
       - name: Generate configuration file
         run: |
+          cd $BUILD_ROOT
           rm -f ./.config*
           touch ./.config
 
@@ -100,54 +108,90 @@ jobs:
 
       - name: Make download
         run: |
+          cd $BUILD_ROOT
           make download -j8 || make download -j1 V=s
           rm -rf $(find ./dl/ -size -1024c)
           df -h
 
-      - name: Compile firmware
+      - name: Build the firmware image
+        id: compile
         run: |
-          make -j$(nproc) || make -j1 V=s
-          echo "======================="
-          echo "Space usage:"
-          echo "======================="
-          df -h
-          echo "======================="
-          du -h ./ --max-depth=1
-          du -h /mnt/openwrt/ --max-depth=1 || true
+          cd $BUILD_ROOT && echo "$(($(nproc)+1)) thread compile"
+          IGNORE_ERRORS=m make -j$(($(nproc)+1)) defconfig download clean world || IGNORE_ERRORS=m make -j1 defconfig download clean world V=s
+          echo "status=success" >> $GITHUB_OUTPUT
+          grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+          [ -s DEVICE_NAME ] && echo "DEVICE_NAME=$(cat DEVICE_NAME)" >> $GITHUB_ENV
+          echo "FILE_DATE=$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-      - name: Prepare artifact
+      - name: Check space usage
+        run: df -hT
+
+      - name: Upload bin directory
+        uses: actions/upload-artifact@main
+        if: steps.compile.outputs.status == 'success'
+        with:
+          name: OpenWrt_bin_${{ env.DEVICE_NAME }}_${{ env.FILE_DATE }}
+          path: ${{ env.BUILD_ROOT }}/bin
+
+      - name: Organize files
+        id: organize
         run: |
-          mkdir -p ./artifact/firmware
-          mkdir -p ./artifact/package
-          mkdir -p ./artifact/buildinfo
-          rm -rf $(find ./bin/targets/ -type d -name "packages")
-          cp -rf $(find ./bin/targets/ -type f) ./artifact/firmware/
-          cp -rf $(find ./bin/packages/ -type f -name "*.ipk") ./artifact/package/
-          cp -rf $(find ./bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ./artifact/buildinfo/
+          cd $BUILD_ROOT/bin/targets/*/* && rm -rf packages
+          { echo '### SHA256SUMS'; echo '```txt'; cat sha256sums; echo '```'; } > $BUILD_ROOT/SHA256SUMS
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+          echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Deliver buildinfo
-        uses: actions/upload-artifact@v4
+      - name: Upload firmware directory
+        uses: actions/upload-artifact@main
+        if: steps.organize.outputs.status == 'success'
         with:
-          name: OpenWrt_buildinfo
-          path: ./artifact/buildinfo/
+          name: OpenWrt_firmware_${{ env.DEVICE_NAME }}_${{ env.FILE_DATE }}
+          path: ${{ env.FIRMWARE }}
 
-      - name: Deliver package
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenWrt_package
-          path: ./artifact/package/
+      - name: Generate stable Release Tag
+        id: stabletag
+        run: |
+          echo "release_tag=$(cd $BUILD_ROOT && git describe --tags --abbrev=0 --exact-match)_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+          echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Deliver firmware
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenWrt_firmware
-          path: ./bin/targets/
+      - name: Generate snapshot Release Tag
+        id: snapshottag 
+        run: |
+          echo "release_tag=SNAPSHOT_$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+          echo "status=success" >> $GITHUB_OUTPUT
 
-      - name: Upload release asset
-        if: github.event == 'release'
-        uses: svenstaro/upload-release-action@v2
+      - name: Upload stable firmware to Release
+        uses: softprops/action-gh-release@master
+        if: steps.stabletag.outputs.status == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          repo_token: ${{ secrets.YOURTOKEN }}
-          file: ./artifact/firmware/*w
-          tag: ${{ github.ref }}
-          file_glob: true
+          tag_name: ${{ steps.stabletag.outputs.release_tag }}
+          files: ${{ env.FIRMWARE }}/*
+          body_path: ${{ env.BUILD_ROOT }}/SHA256SUMS
+
+      - name: Upload snapshot firmware to Release
+        uses: softprops/action-gh-release@master
+        if: steps.snapshottag.outputs.status == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.snapshottag.outputs.release_tag }}
+          files: ${{ env.FIRMWARE }}/*
+          body_path: ${{ env.BUILD_ROOT }}/SHA256SUMS
+
+      - name: Delete workflow runs
+        if: always()
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          retain_days: 30
+          keep_minimum_runs: 5
+
+      - name: Remove old Releases
+        if: always()
+        uses: dev-drprasad/delete-older-releases@master
+        with:
+          keep_latest: 5
+          delete_tags: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
